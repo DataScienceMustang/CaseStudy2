@@ -1,0 +1,342 @@
+---
+title: "Case Study- Attrition"
+output: pdf_document
+---
+
+Introduction
+HR Analytics helps human resources to interpret data, find out the trends & help take required steps to keep the organization running smoothly & profitably. It has helped human resources to be more active and gain involved role in an organization's planning & objectives. This analysis helps organization to identify factors responsible for churning of employees and how to take proactive measures in order to minimize it
+
+Importing relevant libraries and dataset
+
+```{r Libraries, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(stringi)
+library(ggplot2)
+library(RCurl)
+library(curl)
+library(gridExtra)
+library(plotly)
+library(GGally)
+library(viridis)
+library(ggthemes)
+library(cowplot)
+library(caret)
+library(forcats)
+library(RColorBrewer)
+library(rpart)
+
+attr.data <- read.csv('https://raw.githubusercontent.com/BivinSadler/MSDS_6306_Doing-Data-Science/Master/Unit%2014%20and%2015%20Case%20Study%202/CaseStudy2-data.csv')
+
+summary(attr.data)
+```
+
+Performing Exploratory Data Analysis
+
+```{r EDA}
+
+#Distribution of Attrition in data
+
+ggplot(attr.data, aes(x=Attrition))+geom_bar(stat="count", width=0.7, fill="steelblue")+
+  labs(title = 'Distribution of Attrition in data')
+
+#Density plots of Monthly income, Hourly rate, Daily rate, Monthly rate by attrition
+
+g1<-ggplot(attr.data, aes(x=MonthlyIncome,fill=Attrition))+
+    geom_density(alpha=0.8)
+
+g2<-ggplot(attr.data, aes(x=HourlyRate,fill=Attrition))+
+    geom_density(alpha=0.8)
+
+g3<-ggplot(attr.data, aes(x=DailyRate,fill=Attrition))+
+    geom_density(alpha=0.8)
+
+g4<-ggplot(attr.data, aes(x=MonthlyRate,fill=Attrition))+
+    geom_density(alpha=0.8)
+
+grid.arrange(g1,g2,g3,g4,ncol=2)
+
+```
+
+Clearly from the above graphs no clearcut distinction can be made in monthly rate, daily rate, hourly rate. Howevere, it can be seen that individuals with low income were more likely to leave the organization
+
+```{r Income, echo=FALSE}
+
+#By Income and Department
+
+avg.income <- attr.data %>% group_by(Attrition,Department) %>% summarize(avg.inc=mean(MonthlyIncome)) %>% 
+                ggplot(aes(x=reorder(Department,avg.inc),y=avg.inc,fill=Attrition))+geom_bar(stat = 'identity', position='dodge')+
+                  facet_wrap(~Attrition)+theme_minimal()+theme(axis.text.x = element_text(angle = 90),plot.title = element_text(hjust = 0.5))+
+                    labs(y='Average Income',x='Department',title = 'Average Income of Department and Attrition')+
+                      geom_text(aes(x=Department,y=0.01,label=paste0("$", round(avg.inc,2))),hjust=-0.5,vjust=0,size=3, color="black",fontface="bold", angle=90)
+
+      
+```
+Clearly, employees churning from the organization have comparatively less income in comparison to employees not leaving the job
+
+```{r Gender, echo=FALSE}
+
+#Gender Distribution
+
+dat_text <- data.frame(
+  label = c("Mean = 37.33 \n Years Old", "Mean = 36.65 \n Years Old"),
+  Gender   = c("Female", "Male")
+)
+
+gender.dist <- attr.data %>% select(Gender, Age) %>% filter(Gender == 'Male' | Gender== "Female") %>% 
+  filter(!is.na(Age)) %>% group_by(Gender) %>% 
+  ggplot(aes(x=Age)) + geom_density(aes(fill=Gender), alpha=0.8, show.legend=FALSE) + facet_wrap(~Gender) + theme_minimal() + 
+  geom_vline(aes(xintercept=mean(Age)),
+             color="red", linetype="dashed", size=1) + labs(title="Age Distribution") + 
+  theme(plot.title=element_text(hjust=0.5)) + scale_fill_manual(values=c("#F781F3", "#819FF7")) + 
+  geom_text(
+    data    = dat_text,
+    mapping = aes(x = 45, y = 0.03, label = label),
+    hjust   = -0.1,
+    vjust   = -1
+  )
+
+overall.dist <- attr.data %>% select(Gender, Age) %>% filter(!is.na(Age)) %>% 
+  ggplot(data=attr.data, mapping=aes(x=Age)) + geom_density(color="darkblue", fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Age)),
+             color="red", linetype="dashed", size=1) +  theme_minimal() + labs(x="Overall Age") + 
+  annotate("text", label = "Mean = 36.92 Years Old", x = 50, y = 0.03, color = "black")
+
+plot_grid(gender.dist, overall.dist, nrow=2)
+
+```
+
+Median age of female employees is 37.3 yrs and male employees is 36.65. Overall age of the population is 36.92 years
+
+```{r JobSatisfaction,echo=FALSE }
+# Stacked bar chart with JobSatisfaction in the X-axis 
+options(repr.plot.width=8, repr.plot.height=6) 
+
+stack.attrition <- attr.data %>% select(Attrition, JobSatisfaction, Gender) %>% group_by(JobSatisfaction,Attrition,Gender) %>% summarise(value=n()) %>% 
+  ggplot(aes(x=JobSatisfaction,y=value, fill=Attrition)) + geom_bar(position="stack", stat="identity") + theme_minimal() + facet_wrap(~Gender)
+
+stack.attrition
+```
+
+Satisfaction score by male candidates is less compared to females. 
+
+```{r Education, echo=T}
+
+# I want to know in terms of proportions if we are loosing key talent here
+
+attr.data$Education<- as.factor(attr.data$Education)
+
+edu.level <- attr.data %>% select(Education, Attrition) %>% group_by(Education, Attrition) %>% 
+  summarize(n=n()) %>% 
+  ggplot(aes(x=fct_reorder(Education,n), y=n, fill=Attrition, color=Attrition)) + geom_bar(stat="identity") + facet_wrap(~Attrition) + 
+  coord_flip() + scale_fill_manual(values=c("#2EF688", "#F63A2E")) + scale_color_manual(values=c("#09C873","#DD1509")) + 
+  geom_label(aes(label=n, fill = Attrition), colour = "white", fontface = "italic") + 
+  labs(x="Education", y="Number of Employees", title="Attrition by Educational Level") + theme_wsj() + 
+  theme(legend.position="none", plot.title=element_text(hjust=0.5, size=14))
+
+edu.pct <- attr.data %>% select(Education, Attrition) %>% group_by(Education, Attrition) %>% 
+  summarize(n=n()) %>% mutate(pct=round(prop.table(n),2) * 100) %>% arrange(desc(pct)) %>%
+  ggplot(aes(x=fct_reorder(Education,pct), y=pct, fill=Attrition, color=Attrition)) + geom_bar(stat="identity") + facet_wrap(~Attrition) + 
+  coord_flip() + geom_label(aes(label=paste0(pct, "%"), fill = Attrition), colour = "white", fontface = "italic") + 
+  scale_fill_manual(values=c("#2EF688", "#F63A2E")) + scale_color_manual(values=c("#09C873","#DD1509")) + 
+  labs(x="Education", y="Number of Employees (%)", title="Attrition by Educational Level", subtitle="Percentage (%) by Employee")+ theme_wsj() + 
+  theme(legend.position="none", plot.title=element_text(hjust=0.5, size=14), plot.subtitle=element_text(hjust=0.5, size=12, face="italic"))
+
+
+plot_grid(edu.level, edu.pct, nrow=2)
+
+```
+Here, employees with lower education level have higher attrition rate 
+
+```{r Jobrole, echo= T}
+
+# Job satisfaction by JobRole
+options(repr.plot.width=10, repr.plot.height=7) 
+
+role_satis <- attr.data %>% select(JobRole, Attrition, JobSatisfaction) %>% group_by(Attrition,JobSatisfaction, JobRole) %>%
+                summarise(n=n()) %>% mutate(weight.jobsat=n*JobSatisfaction,weight.jobsat1=(weight.jobsat-min(weight.jobsat))/(max(weight.jobsat)-min(weight.jobsat)) ) %>% 
+  ggplot(aes(x=JobRole, y=weight.jobsat1, color=Attrition)) + facet_wrap(~Attrition) + coord_flip() + theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90), plot.title=element_text(hjust=0.5, size=10), plot.background=element_rect(fill="#FFF1E0")) + 
+  stat_summary(fun.y=mean, fun.ymin = min, fun.ymax = max) + scale_color_manual(values=c("#58FA58", "#FA5858")) + 
+  labs(title="Job satisfaction by Job Role", x='Job Role', y='Job Satisfaction')
+
+role_satis
+
+```
+Job roless such as Research Director, Manager, Human Resources have very low Job satisfaction score amongst who have churned. The score in these job roles is low for employees who have not churned but this indicates that they are likely to churn
+
+```{r Missing, echo=T}
+
+#Missing value handling and treatment
+
+cat(sum(is.na(attr.data))," missing values were reported in the dataset")
+
+```
+Missing value identification and treatment
+
+```{r Missing, echo=T}
+
+for (i in names(attr.data)){
+  if (is.numeric(attr.data[,i])) {
+    x <- attr.data[,i]
+    qnt <- quantile(x, probs=c(.25, .75), na.rm = T)
+    caps <- quantile(x, probs=c(.05, .9), na.rm = T)
+    H <- 1.5 * IQR(x, na.rm = T)
+    x[x <= (qnt[1] - H)] <- caps[1]
+    x[x > (qnt[2] + H)] <- caps[2]
+    
+    attr.data[,i] <-x}
+  print(i)
+}
+```
+Model building
+
+```{r Model, echo=T}
+
+
+#Model building for attrition
+
+#Two sample t-test between churning and non-churning employees and Distance from home 
+
+t.test(attr.data$DistanceFromHome~attr.data$Attrition, alternative="two.sided", conf.level=0.95, paired=F,
+       var.equal=F,mu=0)
+
+#There is no significant difference between churning and non-churning employees in terms of Distance from home.
+
+#Two sample t-test between churning and non-churning employees and Monthly income
+
+t.test(attr.data$MonthlyIncome~attr.data$Attrition, alternative="two.sided", conf.level=0.95, paired=F,
+       var.equal=F,mu=0)
+
+#There is no significant difference between churning and non-churning employees in terms monthly salary.
+#Churning employees tend to earn less than non-churning employees
+
+#Model starts
+
+set.seed(142)
+
+#shuffle the data before splitting
+
+attr.data <- attr.data[sample(nrow(attr.data)),]
+
+
+# Changing the datatype from integer to factors from the ordinal variables
+
+cols <- c("Education", "EnvironmentSatisfaction", "JobInvolvement", "JobLevel",
+          "JobSatisfaction", "PerformanceRating", "RelationshipSatisfaction", 
+          "StockOptionLevel", "TrainingTimesLastYear", "WorkLifeBalance")
+
+attr.data[cols] <- lapply(attr.data[cols], factor)
+
+summary(attr.data)
+
+# Delete unecessary columns
+
+cols <- c("Over18", "EmployeeNumber", "EmployeeCount","ID")
+
+attr.data[cols] <- NULL
+
+# Splitting our data
+trainIndex <- createDataPartition(attr.data$Attrition, p=0.8, 
+                                  list=FALSE, times=1)
+
+train <- attr.data[trainIndex,]
+test <- attr.data[-trainIndex,]
+
+#Fitting decision tree
+
+options(repr.plot.width=10, repr.plot.height=8) 
+
+#Since this is a classification problem , therefore decision tree is used to build the model
+
+rpart.tree <- rpart(Attrition ~ ., data=train,minbucket = 25)
+plot(rpart.tree, uniform=TRUE, branch=0.6, margin=0.05)
+text(rpart.tree, all=TRUE, use.n=TRUE)
+title("Training Set's Classification Tree")
+
+# For finding important variables
+
+var_imp <- data.frame(rpart.tree$variable.importance)
+
+var_imp$features <- rownames(var_imp)
+var_imp <- var_imp[, c(2, 1)]
+var_imp$importance <- round(var_imp$rpart.tree.variable.importance, 2)
+var_imp$rpart.tree.variable.importance <- NULL
+
+colorCount <- length(unique(var_imp$features))
+
+feature_importance <- var_imp %>%
+  ggplot(aes(x=reorder(features, importance), y=importance, fill=features)) + geom_bar(stat='identity') + coord_flip() + 
+  theme_minimal() + theme(legend.position="none", strip.background = element_blank(), strip.text.x = element_blank(), 
+                          plot.title=element_text(hjust=0.5, color="white"), plot.subtitle=element_text(color="white"), plot.background=element_rect(fill="#0D7680"),
+                          axis.text.x=element_text(colour="white"), axis.text.y=element_text(colour="white"),
+                          axis.title=element_text(colour="white"), 
+                          legend.background = element_rect(fill="#FFF9F5",
+                                                           size=0.5, linetype="solid", 
+                                                           colour ="black")) + scale_fill_manual(values = colorRampPalette(brewer.pal(24, "Set2"))(colorCount)) + 
+  geom_label(aes(label=paste0(importance, "%")), colour = "white", fontface = "italic", hjust=0.6) + 
+  labs(title="Feature Importance for our Decision Tree Model", x="Features", y="Importance")
+
+feature_importance
+
+#Important features identified from the model
+
+options(repr.plot.width=8, repr.plot.height=6) 
+
+predictions <- predict(rpart.tree, test, type="class")
+
+confusionMatrix(test$Attrition,predictions, positive = 'Yes')
+
+# The model able achieve sensitivity of 88% and specificity of 82% which is quite a good figure
+
+conf_df <- data.frame(table(test$Attrition, predictions))
+
+ggplot(data =  conf_df, mapping = aes(x = predictions, y = Var1)) +
+  geom_tile(aes(fill = Freq), colour = "white") +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "#F3F781", high = "#58FA82") +
+  theme_economist() + theme(legend.position="none", strip.background = element_blank(), strip.text.x = element_blank(), 
+                            plot.title=element_text(hjust=0.5, color="white"), plot.subtitle=element_text(color="white"), plot.background=element_rect(fill="#0D7680"),
+                            axis.text.x=element_text(colour="white"), axis.text.y=element_text(colour="white"),
+                            axis.title=element_text(colour="white"), 
+                            legend.background = element_rect(fill="#FFF9F5",
+                                                             size=0.5, linetype="solid", 
+                                                             colour ="black")) + 
+  labs(title="Confusion Matrix", y="Attrition Status", x="Predictions")
+
+#Prediction on unlabelled dataset
+
+test.attr<- read.csv('https://raw.githubusercontent.com/BivinSadler/MSDS_6306_Doing-Data-Science/Master/Unit%2014%20and%2015%20Case%20Study%202/CaseStudy2CompSet%20No%20Attrition.csv')
+
+# Delete unecessary columns
+
+
+cols <- c("Education", "EnvironmentSatisfaction", "JobInvolvement", "JobLevel",
+          "JobSatisfaction", "PerformanceRating", "RelationshipSatisfaction", 
+          "StockOptionLevel", "TrainingTimesLastYear", "WorkLifeBalance")
+
+test.attr[cols] <- lapply(test.attr[cols], factor)
+
+cols <- c("Over18", "EmployeeNumber", "EmployeeCount","ID")
+
+test.attr[cols]<- NULL
+
+pred.attr <- predict(rpart.tree, test.attr, type="class")
+
+#Developing model using naive bayes
+
+naive.bayes<- naiveBayes(Attrition ~ ., data=train)
+
+nb.pred <- predict(naive.bayes, test, type="class")
+
+confusionMatrix(test$Attrition,nb.pred, positive = 'Yes')
+
+#Sensitivity= 72% & #Specificity=90%
+
+```
+Concluding remarks
+
+There are several factors contributing towards employee churning from an organization, But majorly this is due to 
+1) If stock option is not given, then churninig increase
+2) More overtime leads to attrition
+3) Low monthly income results in looking for better opportunity in other organization
