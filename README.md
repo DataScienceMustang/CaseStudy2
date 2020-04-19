@@ -1,2 +1,3 @@
 # CaseStudy2
-Case Study 2
+A modeling attrition at Frito Lays
+
